@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Agregar Nuevo Curso</title>
+</head>
+<body>
+    <h1>Agregar Nuevo Curso</h1>
+
+    {% if error %}
+        <p style="color:red;">{{ error }}</p>
+    {% endif %}
+
+    <form method="post">
+        <label for="nombre">Nombre del Curso:</label><br>
+        <input type="text" name="nombre" required><br><br>
+
+        <label for="profesor_nombre">Nombre del Profesor:</label><br>
+        <input type="text" name="profesor_nombre" required><br><br>
+
+        <label for="profesor_correo">Correo del Profesor:</label><br>
+        <input type="email" name="profesor_correo" required><br><br>
+
+        <button type="submit">Agregar Curso</button>
+    </form>
+
+    <a href="{{ url_for('admin_dashboard') }}">Volver al Dashboard</a>
+</body>
+</html>

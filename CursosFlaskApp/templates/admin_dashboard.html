@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Panel de Administrador</title>
+</head>
+<body>
+    <h1>Bienvenido, {{ session['admin_nombre'] }}</h1>
+    <h2>Panel de Administración</h2>
+
+    <h3>Alumnos Inscritos</h3>
+    <ul>
+        {% for alumno in alumnos %}
+            <li>{{ alumno['nombre'] }} - {{ alumno['email'] }}</li>
+        {% endfor %}
+    </ul>
+
+    <h3>Cursos Disponibles</h3>
+    <a href="{{ url_for('agregar_curso') }}" style="display: inline-block; margin-bottom: 10px; padding: 10px; background-color: green; color: white; text-decoration: none; border-radius: 5px;">Agregar Nuevo Curso</a>
+    <ul>
+        {% for curso in cursos %}
+            <li>
+                {{ curso['nombre'] }} - {{ curso['descripcion'] }}<br>
+                <a href="{{ url_for('editar_curso', curso_id=curso['id']) }}">Editar</a> |
+                <form method="post" action="{{ url_for('eliminar_curso', curso_id=curso['id']) }}" style="display: inline;">
+                    <button type="submit" style="color: red;">Eliminar</button>
+                </form>
+            </li>
+        {% endfor %}
+    </ul>
+
+    <h3>Profesores</h3>
+    <ul>
+        {% for profesor in profesores %}
+            <li>
+                {{ profesor['nombre'] }}<br>
+                <a href="{{ url_for('editar_profesor', profesor_id=profesor['id']) }}">Editar</a>
+            </li>
+        {% endfor %}
+    </ul>
+
+    <h3>Inscripciones</h3>
+    <ul>
+        {% for inscripcion in inscripciones %}
+            <li>{{ inscripcion['alumno_nombre'] }} está inscrito en {{ inscripcion['curso_nombre'] }}</li>
+        {% endfor %}
+    </ul>
+
+    <a href="{{ url_for('logout') }}">Cerrar sesión</a>
+</body>
+</html>

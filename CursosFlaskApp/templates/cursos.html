@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Cursos Disponibles</title>
+</head>
+<body>
+    <h1>Bienvenido, {{ session['alumno_nombre'] }}</h1>
+    <h2>Cursos Disponibles</h2>
+
+    {% if error %}
+        <p style="color:red;">{{ error }}</p>
+    {% endif %}
+
+    {% if cursos %}
+        <ul>
+            {% for curso in cursos %}
+                <li>
+                    <strong>{{ curso['curso_nombre'] }}</strong> - {{ curso['descripcion'] }}<br>
+                    Profesor: {{ curso['profesor_nombre'] or 'No asignado' }}<br>
+                    <form method="post" action="{{ url_for('inscribirse', curso_id=curso['id']) }}">
+                        <button type="submit">Inscribirse</button>
+                    </form>
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p>No hay cursos disponibles en este momento.</p>
+    {% endif %}
+
+    <h3>Tus cursos inscritos:</h3>
+    <ul>
+        {% for curso in cursos_inscritos %}
+            <li>{{ curso['curso_nombre'] }}</li>
+        {% endfor %}
+    </ul>
+
+    <a href="{{ url_for('logout') }}">Cerrar sesión</a>
+</body>
+</html>
