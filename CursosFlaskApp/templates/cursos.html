@@ -3,6 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <title>Cursos Disponibles</title>
+    <style>
+        body { font-family: sans-serif; }
+        ul { list-style: none; padding: 0; }
+        li {
+            border: 1px solid #ccc;
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .inscrito { color: green; }
+    </style>
 </head>
 <body>
     <h1>Bienvenido, {{ session['alumno_nombre'] }}</h1>
@@ -18,9 +29,16 @@
                 <li>
                     <strong>{{ curso['curso_nombre'] }}</strong> - {{ curso['descripcion'] }}<br>
                     Profesor: {{ curso['profesor_nombre'] or 'No asignado' }}<br>
-                    <form method="post" action="{{ url_for('inscribirse', curso_id=curso['id']) }}">
-                        <button type="submit">Inscribirse</button>
-                    </form>
+                    {% if curso['id'] in cursos_inscritos_ids %}
+                        <p class="inscrito">Ya estás inscrito en este curso.</p>
+                        <form method="post" action="{{ url_for('retirarse', curso_id=curso['id']) }}">
+                            <button type="submit">Retirarse del curso</button>
+                        </form>
+                    {% else %}
+                        <form method="post" action="{{ url_for('inscribirse', curso_id=curso['id']) }}">
+                            <button type="submit">Inscribirse</button>
+                        </form>
+                    {% endif %}
                 </li>
             {% endfor %}
         </ul>
@@ -28,12 +46,6 @@
         <p>No hay cursos disponibles en este momento.</p>
     {% endif %}
 
-    <h3>Tus cursos inscritos:</h3>
-    <ul>
-        {% for curso in cursos_inscritos %}
-            <li>{{ curso['curso_nombre'] }}</li>
-        {% endfor %}
-    </ul>
 
     <a href="{{ url_for('logout') }}">Cerrar sesión</a>
 </body>

@@ -15,8 +15,14 @@
         <label for="nombre">Nombre del Curso:</label><br>
         <input type="text" name="nombre" value="{{ curso['nombre'] }}" required><br><br>
 
-        <label for="profesor_id">ID del Profesor:</label><br>
-        <input type="number" name="profesor_id" value="{{ curso['profesor_id'] }}" required><br><br>
+        <label for="profesor_id">Profesor:</label><br>
+        <select name="profesor_id">
+            {% for profesor in profesores %}
+                <option value="{{ profesor['id'] }}" {% if curso['profesor_id'] == profesor['id'] %}selected{% endif %}>
+                    {{ profesor['nombre'] }}
+                </option>
+            {% endfor %}
+        </select><br><br>
 
         <button type="submit">Guardar Cambios</button>
     </form>

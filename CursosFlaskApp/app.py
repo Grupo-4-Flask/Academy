@@ -160,11 +160,21 @@ def admin_dashboard():
             ''')
             inscripciones = cursor.fetchall()
 
-        return render_template('admin_dashboard.html', alumnos=alumnos, cursos=cursos, profesores=profesores, inscripciones=inscripciones)
+            # Agrupar las inscripciones por alumno
+            inscripciones_por_alumno = {}  # Usamos un diccionario normal
+            for inscripcion in inscripciones:
+                alumno_nombre = inscripcion['alumno_nombre']
+                curso_nombre = inscripcion['curso_nombre']
+                if alumno_nombre not in inscripciones_por_alumno:
+                    inscripciones_por_alumno[alumno_nombre] = []
+                inscripciones_por_alumno[alumno_nombre].append(curso_nombre)
+
+        return render_template('admin_dashboard.html', alumnos=alumnos, cursos=cursos, profesores=profesores, inscripciones_por_alumno=inscripciones_por_alumno)
 
     except sqlite3.Error as e:
         print(f"Error de base de datos: {e}")
         return "Ocurrió un error al cargar el panel de administrador."
+
 
 
 @app.route('/cursos')
@@ -179,28 +189,32 @@ def ver_cursos():
             cursor = conn.cursor()
             # Consulta para obtener los cursos disponibles
             cursor.execute('''
-                SELECT Cursos.id, Cursos.nombre AS curso_nombre, Profesores.nombre AS profesor_nombre
+                SELECT Cursos.id, Cursos.nombre AS curso_nombre, Cursos.descripcion, Profesores.nombre AS profesor_nombre
                 FROM Cursos
                 LEFT JOIN Profesores ON Cursos.profesor = Profesores.id
             ''')
             cursos = cursor.fetchall()
-            print("Cursos disponibles:", cursos)
 
-            # Consulta para obtener los cursos inscritos del alumno
+            # Consulta para obtener los cursos inscritos del alumno (solo IDs)
             cursor.execute('''
-                SELECT Cursos.id, Cursos.nombre AS curso_nombre
+                SELECT Cursos.id
                 FROM Cursos
                 INNER JOIN Inscripciones ON Cursos.id = Inscripciones.curso_id
                 WHERE Inscripciones.alumno_id = ?
             ''', (alumno_id,))
             cursos_inscritos = cursor.fetchall()
 
-        return render_template('cursos.html', cursos=cursos, cursos_inscritos=cursos_inscritos)
+            # Crear un conjunto con los IDs de los cursos inscritos
+            cursos_inscritos_ids = {curso['id'] for curso in cursos_inscritos}
+
+        return render_template('cursos.html', cursos=cursos, cursos_inscritos=cursos_inscritos, cursos_inscritos_ids=cursos_inscritos_ids)
 
     except sqlite3.Error as e:
         print(f"Error de base de datos: {e}")
         error = 'Ocurrió un error al cargar los cursos. Inténtalo de nuevo más tarde.'
         return render_template('cursos.html', error=error)
+
+
     
 
 @app.route('/inscribirse/<int:curso_id>', methods=['POST'])
@@ -263,18 +277,22 @@ def editar_curso(curso_id):
             if request.method == 'POST':
                 nombre = request.form.get('nombre', '').strip()
                 profesor_id = request.form.get('profesor_id', '').strip()
-                cursor.execute('UPDATE Cursos SET nombre = ?, profesor_id = ? WHERE id = ?', (nombre, profesor_id, curso_id))
+                cursor.execute('UPDATE Cursos SET nombre = ?, profesor = ? WHERE id = ?', (nombre, profesor_id, curso_id))
                 conn.commit()
                 return redirect(url_for('admin_dashboard'))
 
             cursor.execute('SELECT * FROM Cursos WHERE id = ?', (curso_id,))
             curso = cursor.fetchone()
 
-        return render_template('editar_curso.html', curso=curso)
+            cursor.execute('SELECT id, nombre FROM Profesores')
+            profesores = cursor.fetchall()
+
+        return render_template('editar_curso.html', curso=curso, profesores=profesores)
 
     except sqlite3.Error as e:
         print(f"Error de base de datos: {e}")
         return "Ocurrió un error al editar el curso."
+
 
 
 @app.route('/editar_profesor/<int:profesor_id>', methods=['GET', 'POST'])
@@ -307,43 +325,56 @@ def agregar_curso():
     if 'admin_id' not in session:
         return redirect(url_for('login_admin'))
 
-    if request.method == 'POST':
-        nombre = request.form.get('nombre', '').strip()
-        profesor_nombre = request.form.get('profesor_nombre', '').strip()
-        profesor_correo = request.form.get('profesor_correo', '').strip()
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            # Obtener todos los profesores para el dropdown
+            cursor.execute('SELECT id, nombre, correo FROM Profesores')
+            profesores = cursor.fetchall()
 
-        # Validación de campos vacíos
-        if not nombre or not profesor_nombre or not profesor_correo:
-            error = 'Todos los campos son obligatorios.'
-            return render_template('agregar_curso.html', error=error)
+            if request.method == 'POST':
+                nombre = request.form.get('nombre', '').strip()
+                descripcion = request.form.get('descripcion', '').strip()
+                profesor_id = request.form.get('profesor_id', '').strip()
 
-        try:
-            with get_db_connection() as conn:
-                cursor = conn.cursor()
-
-                # Verificar si el profesor ya existe
-                cursor.execute('SELECT id FROM Profesores WHERE nombre = ? AND correo = ?', (profesor_nombre, profesor_correo))
-                profesor = cursor.fetchone()
-
-                if profesor:
-                    profesor = profesor['id']
-                else:
-                    # Insertar el nuevo profesor
-                    cursor.execute('INSERT INTO Profesores (nombre, correo) VALUES (?, ?)', (profesor_nombre, profesor_correo))
-                    profesor = cursor.lastrowid
+                if not nombre or not profesor_id:
+                    error = 'Todos los campos son obligatorios.'
+                    return render_template('agregar_curso.html', error=error, profesores=profesores)
 
                 # Insertar el nuevo curso
-                cursor.execute('INSERT INTO Cursos (nombre, profesor) VALUES (?, ?)', (nombre, profesor))
+                cursor.execute('INSERT INTO Cursos (nombre, descripcion, profesor) VALUES (?, ?, ?)', (nombre, descripcion, profesor_id))
                 conn.commit()
+                return redirect(url_for('admin_dashboard'))
 
-            return redirect(url_for('admin_dashboard'))
+        return render_template('agregar_curso.html', profesores=profesores)
 
-        except sqlite3.Error as e:
-            print(f"Error de base de datos: {e}")
-            error = 'Ocurrió un error al agregar el curso. Inténtalo de nuevo más tarde.'
-            return render_template('agregar_curso.html', error=error)
+    except sqlite3.Error as e:
+        print(f"Error de base de datos: {e}")
+        error = 'Ocurrió un error al agregar el curso. Inténtalo de nuevo más tarde.'
+        return render_template('agregar_curso.html', error=error, profesores=profesores)
 
-    return render_template('agregar_curso.html')
+
+@app.route('/retirarse/<int:curso_id>', methods=['POST'])
+def retirarse(curso_id):
+    if 'alumno_id' not in session:
+        return redirect(url_for('login_alumno'))
+
+    alumno_id = session['alumno_id']
+
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            # Eliminar la inscripción del alumno en el curso
+            cursor.execute('DELETE FROM Inscripciones WHERE alumno_id = ? AND curso_id = ?', (alumno_id, curso_id))
+            conn.commit()
+
+        return redirect(url_for('ver_cursos'))
+
+    except sqlite3.Error as e:
+        print(f"Error de base de datos: {e}")
+        error = 'Ocurrió un error al retirarse del curso. Inténtalo de nuevo más tarde.'
+        return redirect(url_for('ver_cursos', error=error))
+
 
 
 @app.route('/logout')
@@ -352,5 +383,5 @@ def logout():
     return redirect(url_for('inicio'))
 
 # Generar hash de contraseña para el administrador
-hash_pw = generate_password_hash('admin123')  
+# hash_pw = generate_password_hash('admin123')  
 # print(hash_pw)  # Comenta esta línea después de copiar el hash

@@ -3,6 +3,40 @@
 <head>
     <meta charset="UTF-8">
     <title>Panel de Administrador</title>
+    <style>
+        body { font-family: sans-serif; }
+        h2 { margin-top: 20px; }
+        ul { list-style: none; padding: 0; }
+        li {
+            border: 1px solid #ccc;
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .acciones { margin-top: 10px; }
+        .acciones a, .acciones button {
+            display: inline-block;
+            padding: 5px 10px;
+            margin-right: 5px;
+            text-decoration: none;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+        }
+        .acciones a {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .acciones button {
+            background-color: #f44336;
+            color: white;
+        }
+    </style>
+    <script>
+        function confirmarEliminacion() {
+            return confirm('¿Estás seguro de que quieres eliminar este curso?');
+        }
+    </script>
 </head>
 <body>
     <h1>Bienvenido, {{ session['admin_nombre'] }}</h1>
@@ -21,10 +55,12 @@
         {% for curso in cursos %}
             <li>
                 {{ curso['nombre'] }} - {{ curso['descripcion'] }}<br>
-                <a href="{{ url_for('editar_curso', curso_id=curso['id']) }}">Editar</a> |
-                <form method="post" action="{{ url_for('eliminar_curso', curso_id=curso['id']) }}" style="display: inline;">
-                    <button type="submit" style="color: red;">Eliminar</button>
-                </form>
+                <div class="acciones">
+                    <a href="{{ url_for('editar_curso', curso_id=curso['id']) }}">Editar</a>
+                    <form method="post" action="{{ url_for('eliminar_curso', curso_id=curso['id']) }}" style="display: inline;" onsubmit="return confirmarEliminacion()">
+                        <button type="submit">Eliminar</button>
+                    </form>
+                </div>
             </li>
         {% endfor %}
     </ul>
@@ -33,18 +69,23 @@
     <ul>
         {% for profesor in profesores %}
             <li>
-                {{ profesor['nombre'] }}<br>
-                <a href="{{ url_for('editar_profesor', profesor_id=profesor['id']) }}">Editar</a>
+                {{ profesor['nombre'] }} - {{ profesor['correo'] }}
+                <div class="acciones">
+                    <a href="{{ url_for('editar_profesor', profesor_id=profesor['id']) }}">Editar</a>
+                </div>
             </li>
         {% endfor %}
     </ul>
 
     <h3>Inscripciones</h3>
-    <ul>
-        {% for inscripcion in inscripciones %}
-            <li>{{ inscripcion['alumno_nombre'] }} está inscrito en {{ inscripcion['curso_nombre'] }}</li>
-        {% endfor %}
-    </ul>
+    {% for alumno, cursos_alumno in inscripciones_por_alumno.items() %}
+        <h4>{{ alumno }}</h4>
+        <ul>
+            {% for curso in cursos_alumno %}
+                <li>{{ curso }}</li>
+            {% endfor %}
+        </ul>
+    {% endfor %}
 
     <a href="{{ url_for('logout') }}">Cerrar sesión</a>
 </body>
