@@ -16,7 +16,7 @@
     </style>
 </head>
 <body>
-    <h1>Bienvenido, {{ session['alumno_nombre'] }}</h1>
+    <h1>Bienvenido, {{ jwt['alumno_nombre'] }}</h1>
     <h2>Cursos Disponibles</h2>
 
     {% if error %}
@@ -32,10 +32,12 @@
                     {% if curso['id'] in cursos_inscritos_ids %}
                         <p class="inscrito">Ya estás inscrito en este curso.</p>
                         <form method="post" action="{{ url_for('retirarse', curso_id=curso['id']) }}">
+                            <input type="hidden" name="token" value="{{ request.args.get('token') }}">
                             <button type="submit">Retirarse del curso</button>
                         </form>
                     {% else %}
                         <form method="post" action="{{ url_for('inscribirse', curso_id=curso['id']) }}">
+                            <input type="hidden" name="token" value="{{ request.args.get('token') }}">
                             <button type="submit">Inscribirse</button>
                         </form>
                     {% endif %}

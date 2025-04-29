@@ -1,12 +1,18 @@
 # Importamos las bibliotecas necesarias
-from flask import Flask, render_template, redirect, url_for, request, session
+from flask import Flask, render_template, redirect, url_for, request
 import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
+import jwt
+from datetime import datetime, timedelta
 
 # Creamos la aplicación Flask
 app = Flask(__name__)
 # Establecemos una clave secreta para manejar sesiones de usuario de forma segura
 app.secret_key = 'clave_secreta_para_sesiones'
+
+# Clave secreta para firmar los tokens JWT
+JWT_SECRET = 'clave_secreta_para_jwt'
+JWT_ALGORITHM = 'HS256'
 
 # Función para conectar a la base de datos SQLite
 def get_db_connection():
@@ -16,50 +22,60 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
+# Función para generar un token JWT
+def generar_token(datos):
+    payload = {
+        'exp': datetime.utcnow() + timedelta(hours=1),  # Expiración en 1 hora
+        'iat': datetime.utcnow(),  # Fecha de emisión
+        'sub': datos  # Datos del usuario
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+# Función para verificar un token JWT
+def verificar_token(token):
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return payload['sub']
+    except jwt.ExpiredSignatureError:
+        return None  # Token expirado
+    except jwt.InvalidTokenError:
+        return None  # Token inválido
+
 # Ruta principal de la aplicación
 @app.route('/')
 def inicio():
     return render_template('inicio.html')
 
-# Ruta para el login de alumnos
+# Modificar la ruta de login para alumnos
 @app.route('/login_alumno', methods=['GET', 'POST'])
 def login_alumno():
-    # Si el usuario envía el formulario (POST)
     if request.method == 'POST':
-        # Obtenemos los datos del formulario y eliminamos espacios
         email = request.form.get('email', '').strip()
         contraseña = request.form.get('contraseña', '').strip()
 
-        # Verificamos que no haya campos vacíos
         if not email or not contraseña:
             error = 'Todos los campos son obligatorios.'
             return render_template('login_alumno.html', error=error)
 
         try:
-            # Conectamos a la base de datos
             with get_db_connection() as conn:
                 cursor = conn.cursor()
-                # Buscamos al alumno por su email
                 cursor.execute('SELECT * FROM Alumnos WHERE email = ?', (email,))
                 alumno = cursor.fetchone()
 
-                # Verificamos la contraseña
                 if alumno and check_password_hash(alumno['contraseña'], contraseña):
-                    # Si es correcta, guardamos los datos en la sesión
-                    session['alumno_id'] = alumno['id']
-                    session['alumno_nombre'] = alumno['nombre']
-                    return redirect(url_for('ver_cursos'))
+                    # Generar token JWT
+                    token = generar_token({'id': alumno['id'], 'nombre': alumno['nombre']})
+                    return redirect(url_for('ver_cursos', token=token))
                 else:
                     error = 'Email o contraseña incorrectos.'
                     return render_template('login_alumno.html', error=error)
 
         except sqlite3.Error as e:
-            # Manejamos cualquier error de base de datos
             print(f"Error de base de datos: {e}")
             error = 'Ocurrió un error al iniciar sesión. Inténtalo de nuevo más tarde.'
             return render_template('login_alumno.html', error=error)
 
-    # Si es GET, mostramos el formulario de login
     return render_template('login_alumno.html')
 
 # Ruta para registro de nuevos alumnos
@@ -97,7 +113,7 @@ def registro_alumno():
                 hash_pw = generate_password_hash(contraseña)
                 # Insertamos el nuevo alumno
                 cursor.execute('INSERT INTO Alumnos (nombre, email, contraseña) VALUES (?, ?, ?)',
-                               (nombre, email, hash_pw))
+                             (nombre, email, hash_pw))
                 conn.commit()
 
             return redirect(url_for('login_alumno'))
@@ -134,11 +150,9 @@ def login_admin():
 
                 # Verificamos las credenciales del administrador
                 if admin and check_password_hash(admin['contraseña'], contraseña):
-                    # Si son correctas, guardamos los datos en la sesión
-                    session['admin_id'] = admin['id']
-                    session['admin_nombre'] = admin['nombre']
-                    # Redirigimos al panel de administración
-                    return redirect(url_for('admin_dashboard'))
+                    # Generar token JWT
+                    token = generar_token({'id': admin['id'], 'nombre': admin['nombre']})
+                    return redirect(url_for('admin_dashboard', token=token))
                 else:
                     # Si las credenciales son incorrectas, mostramos error
                     error = 'Email o contraseña incorrectos.'
@@ -154,10 +168,13 @@ def login_admin():
     return render_template('login_admin.html')
 
 
+# Modificar la ruta de admin_dashboard para pasar los datos del token al template
 @app.route('/admin_dashboard')
 def admin_dashboard():
-    # Verificamos si hay un administrador logueado - medida de seguridad
-    if 'admin_id' not in session:
+    token = request.args.get('token')
+    datos_usuario = verificar_token(token)
+
+    if not datos_usuario:
         return redirect(url_for('login_admin'))
 
     try:
@@ -203,10 +220,11 @@ def admin_dashboard():
         # SECCIÓN 4: RENDERIZADO
         # Enviamos todos los datos recopilados a la plantilla
         return render_template('admin_dashboard.html', 
-                             alumnos=alumnos,           # Lista de todos los alumnos
-                             cursos=cursos,            # Lista de todos los cursos
-                             profesores=profesores,    # Lista de todos los profesores
-                             inscripciones_por_alumno=inscripciones_por_alumno)  # Diccionario de inscripciones
+                            alumnos=alumnos,           # Lista de todos los alumnos
+                            cursos=cursos,            # Lista de todos los cursos
+                            profesores=profesores,    # Lista de todos los profesores
+                            inscripciones_por_alumno=inscripciones_por_alumno,  # Diccionario de inscripciones
+                            jwt_payload=datos_usuario)  # Pasar datos del token al template
 
     except sqlite3.Error as e:
         # Manejo de errores de base de datos
@@ -216,14 +234,16 @@ def admin_dashboard():
         return "Ocurrió un error al cargar el panel de administrador."
 
 # SECCIÓN: VISUALIZACIÓN DE CURSOS
+# Modificar la ruta de ver_cursos para pasar los datos del token al template
 @app.route('/cursos')
 def ver_cursos():
-    # Verificación de seguridad: el usuario debe estar logueado
-    if 'alumno_id' not in session:
+    token = request.args.get('token')
+    datos_usuario = verificar_token(token)
+
+    if not datos_usuario:
         return redirect(url_for('login_alumno'))
 
-    # Obtenemos el ID del alumno de la sesión
-    alumno_id = session['alumno_id']
+    alumno_id = datos_usuario['id']
 
     try:
         with get_db_connection() as conn:
@@ -253,7 +273,8 @@ def ver_cursos():
         return render_template('cursos.html', 
                              cursos=cursos,  # Lista de todos los cursos
                              cursos_inscritos=cursos_inscritos,  # Lista de cursos inscritos
-                             cursos_inscritos_ids=cursos_inscritos_ids)  # Conjunto de IDs para verificación rápida
+                             cursos_inscritos_ids=cursos_inscritos_ids,  # Conjunto de IDs para verificación rápida
+                             jwt=datos_usuario)  # Pasar datos del token al template
 
     except sqlite3.Error as e:
         # Manejo de errores de base de datos
@@ -266,10 +287,13 @@ def ver_cursos():
 
 @app.route('/inscribirse/<int:curso_id>', methods=['POST'])
 def inscribirse(curso_id):
-    if 'alumno_id' not in session:
+    token = request.form.get('token')
+    datos_usuario = verificar_token(token)
+
+    if not datos_usuario:
         return redirect(url_for('login_alumno'))
 
-    alumno_id = session['alumno_id']
+    alumno_id = datos_usuario['id']
 
     try:
         with get_db_connection() as conn:
@@ -280,23 +304,26 @@ def inscribirse(curso_id):
 
             if inscripcion:
                 error = 'Ya estás inscrito en este curso.'
-                return redirect(url_for('ver_cursos', error=error))
+                return redirect(url_for('ver_cursos', token=token, error=error))
 
             # Inscribir al alumno en el curso
             cursor.execute('INSERT INTO Inscripciones (alumno_id, curso_id) VALUES (?, ?)', (alumno_id, curso_id))
             conn.commit()
 
-        return redirect(url_for('ver_cursos'))
+        return redirect(url_for('ver_cursos', token=token))
 
     except sqlite3.Error as e:
         print(f"Error de base de datos: {e}")
         error = 'Ocurrió un error al inscribirse en el curso. Inténtalo de nuevo más tarde.'
-        return redirect(url_for('ver_cursos', error=error))
+        return redirect(url_for('ver_cursos', token=token, error=error))
 
 
 @app.route('/eliminar_curso/<int:curso_id>', methods=['POST'])
 def eliminar_curso(curso_id):
-    if 'admin_id' not in session:
+    token = request.form.get('token')
+    datos_usuario = verificar_token(token)
+
+    if not datos_usuario:
         return redirect(url_for('login_admin'))
 
     try:
@@ -305,17 +332,20 @@ def eliminar_curso(curso_id):
             cursor.execute('DELETE FROM Cursos WHERE id = ?', (curso_id,))
             conn.commit()
 
-        return redirect(url_for('admin_dashboard'))
+        return redirect(url_for('admin_dashboard', token=token))
 
     except sqlite3.Error as e:
         print(f"Error de base de datos: {e}")
-        return "Ocurrió un error al eliminar el curso."
+        return redirect(url_for('admin_dashboard', token=token, error="Ocurrió un error al eliminar el curso."))
 
 
+# Modificar la ruta de editar_curso para manejar correctamente el token JWT
 @app.route('/editar_curso/<int:curso_id>', methods=['GET', 'POST'])
 def editar_curso(curso_id):
-    # Verificación de seguridad: solo administradores pueden editar cursos
-    if 'admin_id' not in session:
+    token = request.args.get('token')
+    datos_usuario = verificar_token(token)
+
+    if not datos_usuario:
         return redirect(url_for('login_admin'))
 
     try:
@@ -330,7 +360,7 @@ def editar_curso(curso_id):
                 cursor.execute('UPDATE Cursos SET nombre = ?, profesor = ? WHERE id = ?', 
                              (nombre, profesor_id, curso_id))
                 conn.commit()
-                return redirect(url_for('admin_dashboard'))
+                return redirect(url_for('admin_dashboard', token=token))
 
             # Si es GET, obtenemos los datos del curso a editar
             cursor.execute('SELECT * FROM Cursos WHERE id = ?', (curso_id,))
@@ -341,7 +371,7 @@ def editar_curso(curso_id):
             profesores = cursor.fetchall()
 
         # Renderizamos el template con los datos del curso y profesores
-        return render_template('editar_curso.html', curso=curso, profesores=profesores)
+        return render_template('editar_curso.html', curso=curso, profesores=profesores, jwt_payload=datos_usuario)
 
     except sqlite3.Error as e:
         print(f"Error de base de datos: {e}")
@@ -349,8 +379,10 @@ def editar_curso(curso_id):
 
 @app.route('/editar_profesor/<int:profesor_id>', methods=['GET', 'POST'])
 def editar_profesor(profesor_id):
-    # Verificación de seguridad: solo administradores pueden editar profesores
-    if 'admin_id' not in session:
+    token = request.args.get('token')
+    datos_usuario = verificar_token(token)
+
+    if not datos_usuario:
         return redirect(url_for('login_admin'))
 
     try:
@@ -378,14 +410,13 @@ def editar_profesor(profesor_id):
         return "Ocurrió un error al editar el profesor."
 
 
+# Modificar la ruta de agregar_curso para manejar correctamente el token JWT
 @app.route('/agregar_curso', methods=['GET', 'POST'])
 def agregar_curso():
-    """
-    # Ruta para agregar un nuevo curso
-    # Solo accesible por administradores
-    # Maneja formulario para crear curso con nombre, descripción y profesor asignado
-    """
-    if 'admin_id' not in session:
+    token = request.args.get('token')
+    datos_usuario = verificar_token(token)
+
+    if not datos_usuario:
         return redirect(url_for('login_admin'))
 
     try:
@@ -404,33 +435,31 @@ def agregar_curso():
                 # Validación de campos requeridos
                 if not nombre or not profesor_id:
                     error = 'Todos los campos son obligatorios.'
-                    return render_template('agregar_curso.html', error=error, profesores=profesores)
+                    return render_template('agregar_curso.html', error=error, profesores=profesores, jwt_payload=datos_usuario)
 
                 # Insertar el nuevo curso en la base de datos
                 cursor.execute('INSERT INTO Cursos (nombre, descripcion, profesor) VALUES (?, ?, ?)', 
                              (nombre, descripcion, profesor_id))
                 conn.commit()
-                return redirect(url_for('admin_dashboard'))
+                return redirect(url_for('admin_dashboard', token=token))
 
         # Si es GET, mostrar formulario vacío
-        return render_template('agregar_curso.html', profesores=profesores)
+        return render_template('agregar_curso.html', profesores=profesores, jwt_payload=datos_usuario)
 
     except sqlite3.Error as e:
         print(f"Error de base de datos: {e}")
         error = 'Ocurrió un error al agregar el curso. Inténtalo de nuevo más tarde.'
-        return render_template('agregar_curso.html', error=error, profesores=profesores)
+        return render_template('agregar_curso.html', error=error, profesores=profesores, jwt_payload=datos_usuario)
 
 @app.route('/retirarse/<int:curso_id>', methods=['POST'])
 def retirarse(curso_id):
-    """
-    # Ruta para que un alumno se retire de un curso
-    # Requiere que el alumno esté logueado
-    # Elimina el registro de inscripción de la base de datos
-    """
-    if 'alumno_id' not in session:
+    token = request.form.get('token')
+    datos_usuario = verificar_token(token)
+
+    if not datos_usuario:
         return redirect(url_for('login_alumno'))
 
-    alumno_id = session['alumno_id']
+    alumno_id = datos_usuario['id']
 
     try:
         with get_db_connection() as conn:
@@ -440,12 +469,12 @@ def retirarse(curso_id):
                          (alumno_id, curso_id))
             conn.commit()
 
-        return redirect(url_for('ver_cursos'))
+        return redirect(url_for('ver_cursos', token=token))
 
     except sqlite3.Error as e:
         print(f"Error de base de datos: {e}")
         error = 'Ocurrió un error al retirarse del curso. Inténtalo de nuevo más tarde.'
-        return redirect(url_for('ver_cursos', error=error))
+        return redirect(url_for('ver_cursos', token=token, error=error))
 
 @app.route('/logout')
 def logout():
@@ -454,7 +483,6 @@ def logout():
     # Elimina todas las variables de sesión
     # Redirecciona al inicio
     """
-    session.clear()
     return redirect(url_for('inicio'))
 
 # Utilidad para generar hash de contraseña del administrador
